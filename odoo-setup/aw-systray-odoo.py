@@ -49,16 +49,6 @@ def get_icon():
                 img.putpixel((x, y), (128, 0, 128, 255))
     return img
 
-
-def get_icon_path():
-    """Save icon to temp file and return path (Linux only)."""
-    img = get_icon()
-    temp_dir = tempfile.gettempdir()
-    icon_path = os.path.join(temp_dir, "my-aw-icon.png")
-    img.save(icon_path)
-    return icon_path
-
-
 def systray_already_running():
     if IS_WINDOWS:
         return False
@@ -132,72 +122,56 @@ class ActivityWatchMonitor:
             Gtk.main_quit()
 
 
-def create_menu_linux(indicator, monitor):
-    menu = Gtk.Menu()
-
-    item_ui = Gtk.MenuItem(label="ActivityWatch UI")
-    item_ui.connect("activate", monitor.open_ui)
-    menu.append(item_ui)
-
-    item_start = Gtk.MenuItem(label="Start Server")
-    item_start.connect("activate", monitor.start_server)
-    menu.append(item_start)
-
-    item_stop = Gtk.MenuItem(label="Stop Server")
-    item_stop.connect("activate", monitor.stop_server)
-    menu.append(item_stop)
-
-    item_about = Gtk.MenuItem(label="About")
-    item_about.connect("activate", monitor.about)
-    menu.append(item_about)
-
-    menu.append(Gtk.SeparatorMenuItem())
-
-    item_exit = Gtk.MenuItem(label="Exit")
-    item_exit.connect("activate", monitor.on_quit)
-    menu.append(item_exit)
-
-    menu.show_all()
-    return menu
-
-
-def create_menu_windows(monitor):
-    return (
-        pystray.MenuItem("ActivityWatch UI", monitor.open_ui, default=True),
-        pystray.MenuItem("Start Server", monitor.start_server),
-        pystray.MenuItem("Stop Server", monitor.stop_server),
-        pystray.MenuItem("About", monitor.about),
-        pystray.Menu.SEPARATOR,
-        pystray.MenuItem("Exit", monitor.on_quit),
-    )
-
+if IS_WINDOWS:
+    def create_indicator(name, icon, menu_items):
+        pystray_items = []
+        for item in menu_items:
+            if item.get("is_separator"):
+                pystray_items.append(pystray.Menu.SEPARATOR)
+            else:
+                pystray_items.append(
+                    pystray.MenuItem(
+                        item["label"], 
+                        item["action"], 
+                        default=item.get("default", False)
+                    )
+                )
+        indicator = pystray.Icon(name, icon,name, pystray_items)
+        indicator.run()
+        return indicator
+else:
+    def create_indicator(name, icon, menu_items):
+        temp_dir = tempfile.gettempdir()
+        icon_path = os.path.join(temp_dir, "my-aw-icon.png")
+        icon.save(icon_path)
+        indicator = AppIndicator3.Indicator.new(name, icon_path, AppIndicator3.IndicatorCategory.APPLICATION_STATUS,)
+        indicator.set_status(AppIndicator3.IndicatorStatus.ACTIVE)
+        menu = Gtk.Menu()
+        for item in menu_items:
+            if item.get("is_separator"):
+                menu.append(Gtk.SeparatorMenuItem())
+            else:
+                menu_item = Gtk.MenuItem(label=item["label"])
+                menu_item.connect("activate", item["action"])
+                menu.append(menu_item)
+        menu.show_all()
+        indicator.set_menu(menu)
+        Gtk.main()
+        return indicator
 
 if __name__ == '__main__':
     if systray_already_running():
         notify("Systray app is already running !")
         sys.exit(0)
-
-    if IS_WINDOWS:
-        icon = get_icon()
-        monitor = ActivityWatchMonitor(None)
-        indicator = pystray.Icon(
-            "Odoo ActivityWatch",
-            icon,
-            "Odoo ActivityWatch",
-            create_menu_windows(monitor)
-        )
-        monitor.indicator = indicator
-        indicator.run()
-    else:
-        icon_path = get_icon_path()
-        indicator = AppIndicator3.Indicator.new(
-            "Odoo ActivityWatch",
-            icon_path,
-            AppIndicator3.IndicatorCategory.APPLICATION_STATUS,
-        )
-        indicator.set_status(AppIndicator3.IndicatorStatus.ACTIVE)
-
-        awmon = ActivityWatchMonitor(indicator)
-        indicator.set_menu(create_menu_linux(indicator, awmon))
-
-        Gtk.main()
+    monitor = ActivityWatchMonitor(None)
+    menu_items = [
+        {"label": "ActivityWatch UI", "action": monitor.open_ui, "default": True},
+        {"label": "Start Server", "action": monitor.start_server},
+        {"label": "Stop Server", "action": monitor.stop_server},
+        {"label": "About", "action": monitor.about},
+        {"is_separator": True},
+        {"label": "Exit", "action": monitor.on_quit},
+    ]
+    icon = get_icon()
+    indicator = create_indicator("Odoo ActivityWatch", icon, menu_items)
+    monitor.indicator = indicator
