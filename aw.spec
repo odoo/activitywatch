@@ -83,8 +83,16 @@ restx_path = Path(os.path.dirname(flask_restx.__file__))
 
 aws_location = Path("aw-server")
 aw_server_rust_location = Path("aw-server-rust")
-aw_server_rust_bin = aw_server_rust_location / "target/package/aw-server-rust"
-aw_sync_bin = aw_server_rust_location / "target/package/aw-sync"
+
+# Properly find windows executables
+_cargo_target = os.environ.get("CARGO_BUILD_TARGET", "")
+if _cargo_target:
+    aw_server_rust_bin = aw_server_rust_location / "target" / _cargo_target / "release" / "aw-server.exe"
+    aw_sync_bin = aw_server_rust_location / "target" / _cargo_target / "release" / "aw-sync.exe"
+else:
+    aw_server_rust_bin = aw_server_rust_location / "target/package/aw-server-rust"
+    aw_sync_bin = aw_server_rust_location / "target/package/aw-sync"
+
 aw_qt_location = Path("aw-qt")
 awa_location = Path("aw-watcher-afk")
 aww_location = Path("aw-watcher-window")
