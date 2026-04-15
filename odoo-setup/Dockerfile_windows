@@ -1,0 +1,74 @@
+FROM debian:trixie
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV LC_ALL=C.UTF-8
+
+RUN dpkg --add-architecture i386
+
+ARG USID=1000 GRID=1000
+RUN groupadd -g $GRID odoo \
+    && useradd --create-home -u $USID -g odoo -G audio,video odoo \
+    && mkdir -p /run/user/$USID \
+    && chmod 700 /run/user/$USID
+
+RUN apt-get update \
+    && apt-get install -y curl unzip 7zip xvfb mingw-w64 rustup make build-essential git zip \
+    python3 python3-pip python3-venv python3-poetry \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN mkdir -pm755 /etc/apt/keyrings \
+    && curl -sSL https://dl.winehq.org/wine-builds/winehq.key -o /etc/apt/keyrings/winehq-archive.key \
+    && curl -sSL https://dl.winehq.org/wine-builds/debian/dists/trixie/winehq-trixie.sources -o /etc/apt/sources.list.d/winehq.sources \
+    && apt-get update \
+    && apt-get install --install-recommends -y winehq-stable \
+    && rm -rf /var/lib/apt/lists/*
+
+USER odoo
+
+ENV NVM_DIR=/home/odoo/.nvm
+ENV NODE_VERSION=22.22.1
+RUN curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash && \
+    bash -c "source $NVM_DIR/nvm.sh && \
+             nvm install $NODE_VERSION && \
+             nvm alias default $NODE_VERSION && \
+             nvm use default"
+
+ENV PATH="$NVM_DIR/versions/node/v$NODE_VERSION/bin:$PATH"
+
+RUN rustup toolchain install nightly \
+    && rustup default nightly \
+    && rustup target add x86_64-pc-windows-gnu
+
+RUN python3 -m venv /home/odoo/awvenv
+ENV PATH="/home/odoo/awvenv/bin:$PATH"
+ENV VIRTUAL_ENV=/home/odoo/awvenv
+
+ENV XDG_RUNTIME_DIR=/run/user/$USID
+
+ENV WINEPREFIX=/home/odoo/.wine
+ENV WINEARCH=win64
+# Ignoring debug and fixme's message when running wine
+ENV WINEDEBUG=-all
+
+ENV CARGO_BUILD_TARGET=x86_64-pc-windows-gnu
+
+RUN wineboot --init && wineserver -w
+
+RUN curl -fsSL https://www.python.org/ftp/python/3.14.4/python-3.14.4-amd64.exe -o /tmp/python-installer.exe \
+    && chmod u+x /tmp/python-installer.exe
+
+RUN xvfb-run --auto-servernum --server-args="-screen 0 1024x768x24" \
+    sh -c "wine /tmp/python-installer.exe /quiet Include_doc=0 InstallAllUsers=1 PrependPath=1 \
+        && (while pgrep -u $(id -u) -x wineserver > /dev/null 2>&1; do sleep 1; done) \
+        && wineserver -w"
+
+RUN PYTHON_EXE="/home/odoo/.wine/drive_c/Program Files/Python314/python.exe" \
+    && PIP_EXE="/home/odoo/.wine/drive_c/Program Files/Python314/Scripts/pip.exe" \
+    && xvfb-run --auto-servernum --server-args="-screen 0 1024x768x24" \
+       sh -c "wine '$PIP_EXE' install pystray pillow pywin32 pyinstaller"
+
+RUN curl -fsSL https://github.com/jrsoftware/issrc/releases/download/is-6_7_1/innosetup-6.7.1.exe -o /tmp/innosetup.exe \
+    && chmod u+x /tmp/innosetup.exe \
+    && xvfb-run --auto-servernum wine /tmp/innosetup.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART \
+    && (while pgrep -u $(id -u) -x wineserver > /dev/null 2>&1; do sleep 1; done) \
+    && wineserver -w

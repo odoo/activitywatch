@@ -11,6 +11,11 @@ function get_platform() {
     # Will return "macos" for macOS/OS X
     # Will return "windows" for Windows/MinGW/msys
 
+    if [[ -n "${AW_PLATFORM:-}" ]]; then
+        echo "$AW_PLATFORM"
+        return
+    fi
+
     _platform=$(uname | tr '[:upper:]' '[:lower:]')
     if [[ $_platform == "darwin" ]]; then
         _platform="macos";
@@ -67,8 +72,14 @@ function build_setup() {
     filename="activitywatch-${version}-${platform}-${arch}-setup.exe"
     echo "Name of package will be: $filename"
 
-    innosetupdir="/c/Program Files (x86)/Inno Setup 6"
-    if [ ! -d "$innosetupdir" ]; then
+    : "${INNOSETUPDIR:=}"
+    if [[ -n "$INNOSETUPDIR" ]] && [ -d "$INNOSETUPDIR" ]; then
+        innosetupdir="$INNOSETUPDIR"
+    elif [ -d "/c/Program Files (x86)/Inno Setup 6" ]; then
+        innosetupdir="/c/Program Files (x86)/Inno Setup 6"
+    elif command -v winepath > /dev/null && winepath -u "C:\\Program Files (x86)\\Inno Setup 6" &>/dev/null; then
+        innosetupdir="$(winepath -u 'C:\Program Files (x86)\Inno Setup 6')"
+    else
         echo "ERROR: Couldn't find innosetup which is needed to build the installer. We suggest you install it using chocolatey. Exiting."
         exit 1
     fi
@@ -76,9 +87,9 @@ function build_setup() {
     # Windows installer version should not include 'v' prefix, see: https://github.com/microsoft/winget-pkgs/pull/17564
     version_no_prefix="$(echo $version | sed -e 's/^v//')"
     if [[ $TAURI_BUILD == "true" ]]; then
-        env AW_VERSION=$version_no_prefix "$innosetupdir/iscc.exe" scripts/package/aw-tauri.iss
+        env AW_VERSION=$version_no_prefix wine "$innosetupdir/iscc.exe" scripts/package/aw-tauri.iss
     else
-        env AW_VERSION=$version_no_prefix "$innosetupdir/iscc.exe" scripts/package/activitywatch-setup.iss
+        env AW_VERSION=$version_no_prefix wine "$innosetupdir/iscc.exe" scripts/package/activitywatch-setup.iss
     fi
     mv dist/activitywatch-setup.exe dist/$filename
     echo "Setup built!"

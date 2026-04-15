@@ -3,7 +3,9 @@
 # TODO: Merge with scripts/package/getversion.sh
 # set -e
 
-if [[ $TRAVIS_TAG ]]; then
+if [[ -n "${AW_VERSION:-}" ]]; then
+    _version="$AW_VERSION";
+elif [[ $TRAVIS_TAG ]]; then
     _version=$TRAVIS_TAG;
 elif [[ $APPVEYOR_REPO_TAG_NAME ]]; then
     _version=$APPVEYOR_REPO_TAG_NAME;
