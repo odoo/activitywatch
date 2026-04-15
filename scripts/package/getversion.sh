@@ -53,7 +53,9 @@ parse_args() {
 get_version_internal() {
     local _version=""
     
-    if [[ -n "$GITHUB_REF" && "$GITHUB_REF" == refs/tags/v* ]]; then
+    if [[ -n "${AW_VERSION:-}" ]]; then
+        _version="$AW_VERSION";
+    elif [[ -n "$GITHUB_REF" && "$GITHUB_REF" == refs/tags/v* ]]; then
         _version="$GITHUB_REF_NAME"
     elif [[ -n "$TRAVIS_TAG" ]]; then
         _version="$TRAVIS_TAG"
