@@ -196,6 +196,9 @@ package:
 	rm -rf dist
 	mkdir -p dist/activitywatch
 	for dir in $(PACKAGEABLES); do \
+		if [[ "$(ODOO_WINDOWS_BUILD)" == "true" ]] && [[ "$$dir" == "aw-watcher-afk" || "$$dir" == "aw-watcher-window" ]]; then \
+			continue; \
+		fi; \
 		make --directory=$$dir package; \
 		cp -r $$dir/dist/$$dir dist/activitywatch; \
 	done
@@ -205,11 +208,8 @@ ifeq ($(TAURI_BUILD),true)
 	cp aw-server-rust/target/$(targetdir)/aw-sync dist/activitywatch/aw-server-rust/aw-sync
 else
 ifeq ($(ODOO_WINDOWS_BUILD),true)
-# ODOO_WINDOWS_BUILD: Install pystray and build aw-systray-odoo.exe via PyInstaller
-	@echo "ODOO_WINDOWS_BUILD: Installing pystray..."
-	python -m pip install pystray pillow pywin32
 	@echo "ODOO_WINDOWS_BUILD: Building aw-systray-odoo.exe via PyInstaller..."
-	pyinstaller --clean --noconfirm odoo-setup/aw-systray-odoo.spec
+	$(PYTHON) -m PyInstaller --clean --noconfirm odoo-setup/aw-systray-odoo.spec
 	cp dist/aw-systray-odoo.exe dist/activitywatch/aw-systray-odoo.exe
 endif
 endif
