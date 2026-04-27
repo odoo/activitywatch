@@ -5,6 +5,8 @@ import platform
 import subprocess
 import sys
 import tempfile
+import time
+import urllib.request
 import webbrowser
 
 IS_WINDOWS = platform.system() == "Windows"
@@ -85,6 +87,15 @@ def notify(message):
         subprocess.run(["notify-send", "Odoo Activity Watch", message], check=False)
 
 
+def is_aw_accessible(url):
+    """Return True if the Activity Watch HTTP API responds."""
+    try:
+        urllib.request.urlopen(f"{url}/api/0/info", timeout=2)
+        return True
+    except Exception:
+        return False
+
+
 def get_menu_items(monitor):
     return [
         {"label": "View Timeline", "action": monitor.open_ui, "default": True},
@@ -153,6 +164,29 @@ class ActivityWatchMonitor:
                 check=False,
             )
 
+    def wait_for_extension(self, max_wait=60, interval=2):
+        """Wait until the GNOME extension is active before launching the server.
+
+        Called during auto-start where GNOME Shell may not have fully loaded
+        the extension yet. Enables it if needed, then polls until ACTIVE.
+        """
+        if IS_WINDOWS:
+            return
+        self.check_extension()
+        extension_id = "focused-window-dbus@flexagoon.com"
+        elapsed = 0
+        while elapsed < max_wait:
+            result = subprocess.run(
+                ["gnome-extensions", "info", extension_id],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if "State: ACTIVE" in result.stdout:
+                return
+            time.sleep(interval)
+            elapsed += interval
+
     def save_icons(self):
         temp_dir = tempfile.gettempdir()
         icon_path = os.path.join(temp_dir, "my-aw-icon.png")
@@ -161,6 +195,33 @@ class ActivityWatchMonitor:
         self.idle_icon.save(idle_icon_path)
         self.icon_path = icon_path
         self.idle_icon_path = idle_icon_path
+
+    def _launch_binaries(self, notify_errors=True):
+        """Spawn AW binaries without touching the UI or stopping running processes."""
+        self.check_extension()
+        for binary in binaries:
+            if not os.path.exists(binary):
+                if notify_errors:
+                    notify(f"Binary not found: {binary}")
+                continue
+            startupinfo = None
+            if IS_WINDOWS:
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            b = subprocess.Popen(
+                binary,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                startupinfo=startupinfo,
+            )
+            b.poll()
+            if b.returncode is None:
+                self.procs.append(b)
+            else:
+                b.wait()
+                if notify_errors:
+                    notify(f"{binary} not started")
+                    notify(f"{b.args} <b>Not started</b>")
 
     def stop_server(self, widget=None):
         for p in self.procs:
@@ -192,29 +253,8 @@ class ActivityWatchMonitor:
         webbrowser.open("https://activitywatch.net")
 
     def start_server(self, widget=None):
-        self.check_extension()
         self.stop_server()
-        for binary in binaries:
-            if not os.path.exists(binary):
-                notify(f"Binary not found: {binary}")
-                continue
-            startupinfo = None
-            if IS_WINDOWS:
-                startupinfo = subprocess.STARTUPINFO()
-                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-            b = subprocess.Popen(
-                binary,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                startupinfo=startupinfo,
-            )
-            b.poll()
-            if b.returncode is None:
-                self.procs.append(b)
-            else:
-                b.wait()
-                notify(f"{binary} not started")
-                notify(f"{b.args} <b>Not started</b>")
+        self._launch_binaries()
         self.is_server_running = True
         if IS_WINDOWS:
             self.indicator.icon = self.icon
@@ -312,4 +352,25 @@ if __name__ == "__main__":
         sys.exit(0)
 
     monitor = ActivityWatchMonitor()
+
+    MAX_RETRIES = 3
+    RETRY_DELAY = 5  # seconds to wait for the server to become reachable
+
+    monitor.wait_for_extension()
+
+    if is_aw_accessible(monitor.url):
+        monitor.is_server_running = True
+    else:
+        for attempt in range(1, MAX_RETRIES + 1):
+            monitor._launch_binaries(notify_errors=False)
+            time.sleep(RETRY_DELAY)
+            if is_aw_accessible(monitor.url):
+                monitor.is_server_running = True
+                notify("Activity Watch started successfully")
+                break
+        else:
+            notify(
+                f"Activity Watch could not be started after {MAX_RETRIES} attempts"
+            )
+
     indicator = create_indicator("Odoo ActivityWatch", monitor)
