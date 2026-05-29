@@ -29,6 +29,11 @@ else
             mkdir -p ${DEBUILD_PATH} && \
             rm -rf ${DEBUILD_PATH}/* && \
             make clean && \
+	        cd aw-server-rust && \
+	        make clean && \
+	        cd ../awatcher && \
+	        make clean && \
+	        cd .. && \
             make build SUBMODULES='aw-core aw-client aw-qt aw-server aw-server-rust aw-watcher-afk aw-watcher-window awatcher' && \
             make package SUBMODULES='aw-core aw-client aw-qt aw-server aw-server-rust aw-watcher-afk aw-watcher-window awatcher' && \
             mkdir -p ${DEBUILD_PATH}/opt && \
