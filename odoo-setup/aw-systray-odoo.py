@@ -10,6 +10,7 @@ import urllib.request
 import webbrowser
 
 IS_WINDOWS = platform.system() == "Windows"
+IS_UBUNTU = False
 
 if IS_WINDOWS:
     import pystray
@@ -22,6 +23,9 @@ else:
     from gi.repository import AppIndicator3, Gtk
     from PIL import Image
 
+    os_info = platform.freedesktop_os_release()
+    os_id = os_info.get("ID", "").lower()
+    IS_UBUNTU = os_id == "ubuntu"
 
 # Detect installation directory
 if IS_WINDOWS:
@@ -140,7 +144,7 @@ class ActivityWatchMonitor:
         return self.icon_path if self.is_server_running else self.idle_icon_path
 
     def check_extension(self):
-        if IS_WINDOWS:
+        if IS_WINDOWS or not IS_UBUNTU:
             return
         result = subprocess.run(['gnome-extensions', 'list', '--enabled'], capture_output=True, text=True, check=False)
         if 'focused-window-dbus@flexagoon.com' not in result.stdout.split('\n'):
@@ -152,7 +156,7 @@ class ActivityWatchMonitor:
         Called during auto-start where GNOME Shell may not have fully loaded
         the extension yet. Enables it if needed, then polls until ACTIVE.
         """
-        if IS_WINDOWS:
+        if IS_WINDOWS or not IS_UBUNTU:
             return
         self.check_extension()
         extension_id = "focused-window-dbus@flexagoon.com"
