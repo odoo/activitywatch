@@ -1,0 +1,49 @@
+FROM archlinux:latest
+
+ARG USID=1000 GRID=1000
+
+# 1. Install core Arch system dependencies as root
+RUN pacman -Syu --noconfirm && \
+    pacman -S --noconfirm --needed \
+    base-devel ca-certificates git zip unzip curl \
+    rustup python-pip python-poetry \
+    pkgconf openssl libxkbcommon glib2 && \
+    pacman -Scc --noconfirm
+
+# 2. Set up the build user and target build directory
+RUN groupadd -g $GRID odoo && \
+    useradd --create-home -u $USID -g odoo -G audio,video odoo && \
+    mkdir -p /data/build && \
+    chown -R odoo:odoo /data/build
+
+# SWAP TO ODOO USER BEFORE FETCHING PYTHON
+USER odoo
+
+# 3. Install 'uv' inside odoo's home directory
+ENV PATH="/home/odoo/.local/bin:$PATH"
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# 4. Fetch Python 3.13 (lands safely in /home/odoo/.local/share/uv/)
+RUN uv python install 3.13
+
+# 5. Create the virtual environment owned completely by odoo
+RUN uv venv --seed /data/build/awvenv --python 3.13
+
+# 6. Configure Node.js environment
+ENV NVM_DIR=/home/odoo/.nvm
+ENV NODE_VERSION=22.22.1
+RUN curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash && \
+    bash -c "source $NVM_DIR/nvm.sh && \
+             nvm install $NODE_VERSION && \
+             nvm alias default $NODE_VERSION && \
+             nvm use default"
+
+ENV PATH="$NVM_DIR/versions/node/v$NODE_VERSION/bin:$PATH"
+
+# 7. Configure Rust Toolchain
+RUN rustup toolchain install nightly && \
+    rustup default nightly
+
+# Set runtime paths so the virtual environment tools are preferred globally
+ENV PATH="/data/build/awvenv/bin:$PATH"
+ENV VIRTUAL_ENV=/data/build/awvenv
