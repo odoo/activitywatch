@@ -1,0 +1,20 @@
+#!/bin/bash
+# Runs as root after the .pkg payload (the .app bundle and the LaunchAgent
+# plist) has been copied onto disk. Loads the LaunchAgent for the console
+# user immediately, so ActivityWatch starts without requiring a fresh login.
+set -e
+
+LABEL="com.odoo.activitywatch"
+PLIST="/Library/LaunchAgents/${LABEL}.plist"
+
+chown root:wheel "$PLIST"
+chmod 644 "$PLIST"
+
+CONSOLE_USER="$(stat -f%Su /dev/console)"
+if [[ -n "$CONSOLE_USER" && "$CONSOLE_USER" != "root" ]]; then
+    CONSOLE_UID="$(id -u "$CONSOLE_USER")"
+    launchctl bootout "gui/${CONSOLE_UID}" "$PLIST" 2>/dev/null || true
+    launchctl bootstrap "gui/${CONSOLE_UID}" "$PLIST" 2>/dev/null || true
+fi
+
+exit 0

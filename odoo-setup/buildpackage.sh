@@ -7,6 +7,13 @@ mkdir -p dist
 DISTRO_NAME="${1:-${DISTRO_NAME:-"noble"}}"
 PACKAGE_NAME="${2:-${PACKAGE_NAME:-"activitywatch-odoo-$DISTRO_NAME"}}"
 
+if [[ "$DISTRO_NAME" == "macos" ]]; then
+    # No Dockerfile_macos: Apple's toolchain (Xcode, codesign, iconutil)
+    # only runs on real Apple hardware, so this must build natively instead
+    # of inside a container.
+    exec ./buildmacos.sh
+fi
+
 DOCKER_FILE="Dockerfile_${DISTRO_NAME}"
 DOCKER_TAG="${DISTRO_NAME}-awbuilder"
 

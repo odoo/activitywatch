@@ -10,10 +10,17 @@ import urllib.request
 import webbrowser
 
 IS_WINDOWS = platform.system() == "Windows"
+IS_MACOS = platform.system() == "Darwin"
+# Windows and macOS ship as a frozen PyInstaller binary with no system tray
+# toolkit available, so both use pystray. Linux uses AppIndicator3 (GTK),
+# provided by the distro, since it runs as a plain python3 script.
+USE_PYSTRAY = IS_WINDOWS or IS_MACOS
 
-if IS_WINDOWS:
+if USE_PYSTRAY:
     import pystray
     from PIL import Image
+    if IS_MACOS:
+        import psutil
 else:
     import gi
     import psutil
@@ -24,16 +31,28 @@ else:
 
 
 # Detect installation directory
-if IS_WINDOWS:
+if USE_PYSTRAY:
     if getattr(sys, 'frozen', False):
         _install_dir = os.path.dirname(sys.executable)
+        if IS_MACOS:
+            # Inside "ActivityWatch Odoo.app": Contents/MacOS -> Contents/Resources
+            _install_dir = os.path.join(os.path.dirname(_install_dir), "Resources")
     else:
         _install_dir = os.path.dirname(os.path.abspath(__file__))
-    binaries = [
-        os.path.join(_install_dir, "aw-server-rust", "aw-server-rust.exe"),
-        os.path.join(_install_dir, "aw-watcher-afk", "aw-watcher-afk.exe"),
-        os.path.join(_install_dir, "aw-watcher-window", "aw-watcher-window.exe"),
-    ]
+    if IS_WINDOWS:
+        binaries = [
+            os.path.join(_install_dir, "aw-server-rust", "aw-server-rust.exe"),
+            os.path.join(_install_dir, "aw-watcher-afk", "aw-watcher-afk.exe"),
+            os.path.join(_install_dir, "aw-watcher-window", "aw-watcher-window.exe"),
+        ]
+    else:
+        # macOS: binaries live in "ActivityWatch Odoo.app/Contents/Resources/",
+        # see odoo-setup/buildmacos.sh.
+        binaries = [
+            os.path.join(_install_dir, "aw-server-rust", "aw-server-rust"),
+            os.path.join(_install_dir, "aw-watcher-afk", "aw-watcher-afk"),
+            os.path.join(_install_dir, "aw-watcher-window", "aw-watcher-window"),
+        ]
 else:
     binaries = [
         '/opt/activitywatch/aw-server-rust/aw-server-rust',
@@ -41,14 +60,18 @@ else:
     ]
 
 
-def get_icon():
-    """Generate an eye icon in Odoo purple color. Returns PIL Image."""
-    img = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
-    img_stop = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
-    for x in range(64):
-        for y in range(64):
-            pos = (x - 32) ** 2 + (y - 32) ** 2
-            if 300 < pos < 900:
+def get_icon(size=64):
+    """Generate an eye icon in Odoo purple color. Returns PIL Image.
+
+    `size` other than 64 is used by buildmacos.sh to render the .app icon.
+    """
+    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    img_stop = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    scale = (size / 64) ** 2
+    for x in range(size):
+        for y in range(size):
+            pos = (x - size / 2) ** 2 + (y - size / 2) ** 2
+            if 300 * scale < pos < 900 * scale:
                 img.putpixel((x, y), (128, 0, 128, 255))
                 img_stop.putpixel((x, y), (128, 128, 128, 255))
 
@@ -58,8 +81,15 @@ def get_icon():
 def systray_already_running():
     if IS_WINDOWS:
         return False
-    else:
-        return len([p for p in psutil.process_iter(['cmdline']) if p.info['cmdline'] and p.info['cmdline'][-1].endswith('aw-systray-odoo.py')]) > 1
+    if IS_MACOS:
+        # Frozen PyInstaller binary, so the process name is the exe itself,
+        # not a "...aw-systray-odoo.py" cmdline like the Linux script.
+        # A onefile build runs as a bootloader parent + child with the same
+        # name, so ignore both our own pid and our parent's.
+        exe_name = os.path.basename(sys.executable) if getattr(sys, 'frozen', False) else 'aw-systray-odoo.py'
+        own_pids = {os.getpid(), os.getppid()}
+        return any(p.info['name'] == exe_name and p.pid not in own_pids for p in psutil.process_iter(['name']))
+    return len([p for p in psutil.process_iter(['cmdline']) if p.info['cmdline'] and p.info['cmdline'][-1].endswith('aw-systray-odoo.py')]) > 1
 
 
 def notify(message, monitor=None):
@@ -75,6 +105,22 @@ def notify(message, monitor=None):
             import ctypes
 
             ctypes.windll.user32.MessageBoxW(0, message, "Odoo Activity Watch", 0)
+    elif IS_MACOS:
+        # Posting from our own process makes macOS show the .app bundle icon;
+        # osascript notifications always carry the Script Editor icon.
+        center = None
+        if getattr(sys, 'frozen', False):
+            from Foundation import NSUserNotification, NSUserNotificationCenter
+            center = NSUserNotificationCenter.defaultUserNotificationCenter()
+        if center:
+            notification = NSUserNotification.alloc().init()
+            notification.setTitle_("Odoo Activity Watch")
+            notification.setInformativeText_(message)
+            center.deliverNotification_(notification)
+        else:
+            escaped = message.replace('\\', '\\\\').replace('"', '\\"')
+            script = f'display notification "{escaped}" with title "Odoo Activity Watch"'
+            subprocess.run(["osascript", "-e", script], check=False)
     else:
         subprocess.run(["notify-send", "Odoo Activity Watch", message], check=False)
 
@@ -140,7 +186,7 @@ class ActivityWatchMonitor:
         return self.icon_path if self.is_server_running else self.idle_icon_path
 
     def check_extension(self):
-        if IS_WINDOWS:
+        if USE_PYSTRAY:
             return
         result = subprocess.run(['gnome-extensions', 'list', '--enabled'], capture_output=True, text=True, check=False)
         if 'focused-window-dbus@flexagoon.com' not in result.stdout.split('\n'):
@@ -152,7 +198,7 @@ class ActivityWatchMonitor:
         Called during auto-start where GNOME Shell may not have fully loaded
         the extension yet. Enables it if needed, then polls until ACTIVE.
         """
-        if IS_WINDOWS:
+        if USE_PYSTRAY:
             return
         self.check_extension()
         extension_id = "focused-window-dbus@flexagoon.com"
@@ -212,7 +258,7 @@ class ActivityWatchMonitor:
 
     def stop_server(self, widget=None):
         self._stop_server()
-        if IS_WINDOWS:
+        if USE_PYSTRAY:
             self.indicator.icon = self.idle_icon
             self.indicator.title = "Server Stopped"
         else:
@@ -237,7 +283,7 @@ class ActivityWatchMonitor:
         is_launched = self._launch_binaries()
         self.is_server_running = True
         if is_launched:
-            if IS_WINDOWS:
+            if USE_PYSTRAY:
                 self.indicator.icon = self.icon
                 self.indicator.title = "Server running"
             else:
@@ -256,7 +302,7 @@ class ActivityWatchMonitor:
             notify("Server restarted", self)
 
     def update_buttons_visibility(self):
-        if not IS_WINDOWS:
+        if not USE_PYSTRAY:
             for button in self.idle_buttons:
                 button.set_visible(not self.is_server_running)
             for button in self.active_buttons:
@@ -264,14 +310,14 @@ class ActivityWatchMonitor:
 
     def on_quit(self, widget=None):
         self.stop_server()
-        if IS_WINDOWS:
+        if USE_PYSTRAY:
             if self.indicator:
                 self.indicator.stop()
         else:
             Gtk.main_quit()
 
 
-if IS_WINDOWS:
+if USE_PYSTRAY:
 
     def generate_menu_items(monitor):
         menu_items = get_menu_items(monitor)
@@ -358,6 +404,9 @@ if __name__ == "__main__":
         monitor.is_server_running = True
     else:
         for attempt in range(1, MAX_RETRIES + 1):
+            # Kill the previous attempt's processes first, otherwise each retry
+            # stacks another set of watchers (and permission prompts on macOS).
+            monitor._stop_server()
             monitor._launch_binaries(notify_errors=False)
             time.sleep(RETRY_DELAY)
             if is_aw_accessible(monitor.url):
