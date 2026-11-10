@@ -30,6 +30,16 @@ ENV PATH="$NVM_DIR/versions/node/v$NODE_VERSION/bin:$PATH"
 RUN rustup toolchain install nightly && \
     rustup default nightly
 
-RUN python3 -m venv /data/build/awvenv
+# Ubuntu resolute ships Python 3.14 by default, but aw-qt pins
+# `python = "^3.8,<3.14"` (PyInstaller does not support 3.14 yet), so the
+# build venv can't use the OS-default interpreter. Use uv to provision a
+# standalone Python 3.12 (matching Dockerfile_noble's OS-default version)
+# independent of apt, since resolute doesn't package python3.12/3.13.
+ENV UV_INSTALL_DIR=/home/odoo/.local/bin
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+ENV PATH="/home/odoo/.local/bin:$PATH"
+
+RUN uv python install 3.12 && \
+    uv venv --seed --python 3.12 /data/build/awvenv
 ENV PATH="/data/build/awvenv/bin:$PATH"
 ENV VIRTUAL_ENV=/data/build/awvenv
