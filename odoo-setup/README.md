@@ -18,7 +18,7 @@ Build script for Odoo version of ActivityWatch packages for Linux (Debian/Ubuntu
 
 | Argument | Description | Default |
 |---|---|---|
-| `distro` | Target platform (`noble`, `jammy`, `windows`) | `noble` |
+| `distro` | Target platform (`noble`, `jammy`, `resolute`, `windows`) | `noble` |
 | `package_name` | Output package name | `activitywatch-odoo-<distro>` |
 
 ### Examples
@@ -30,6 +30,9 @@ Build script for Odoo version of ActivityWatch packages for Linux (Debian/Ubuntu
 # Build Ubuntu 22.04 package
 ./buildpackage.sh jammy
 
+# Build Ubuntu 26.04 package
+./buildpackage.sh resolute
+
 # Build Windows installer
 ./buildpackage.sh windows
 
@@ -39,7 +42,9 @@ Build script for Odoo version of ActivityWatch packages for Linux (Debian/Ubuntu
 
 ## Outputs
 
-After a successful build, artifacts are available in `odoo-setup/dist/`:
+After a successful build, artifacts are available in `dist/` at the
+repository root (not inside `odoo-setup/`) since the build container mounts
+the repo root and writes there:
 
 | Platform | Output |
 |---|---|

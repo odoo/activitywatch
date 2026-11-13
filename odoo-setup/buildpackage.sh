@@ -2,7 +2,6 @@
 set -xe
 
 cd "$(dirname "$(realpath "$0")")" || exit
-mkdir -p dist
 
 DISTRO_NAME="${1:-${DISTRO_NAME:-"noble"}}"
 PACKAGE_NAME="${2:-${PACKAGE_NAME:-"activitywatch-odoo-$DISTRO_NAME"}}"
